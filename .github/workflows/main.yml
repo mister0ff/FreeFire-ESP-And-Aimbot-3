@@ -27,10 +27,15 @@ jobs:
         run: |
           GRADLEW=$(find . -maxdepth 3 -name gradlew -type f | head -n 1)
           if [ -z "$GRADLEW" ]; then
-            echo "Erro: gradlew não encontrado."
-            exit 1
+            APP_GRADLE=$(grep -rl "com.android.application" --include="build.gradle" . | head -n 1)
+            if [ -z "$APP_GRADLE" ]; then
+              echo "Erro: nenhum projeto Android encontrado."
+              exit 1
+            fi
+            DIR=$(dirname "$(dirname "$APP_GRADLE")")
+          else
+            DIR=$(dirname "$GRADLEW")
           fi
-          DIR=$(dirname "$GRADLEW")
           echo "project_dir=$DIR" >> "$GITHUB_OUTPUT"
           echo "Projeto Android em: $DIR"
 
@@ -43,7 +48,12 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools
+          packages: |
+            platform-tools
+            platforms;android-28
+            build-tools;28.0.3
+            ndk;21.0.6113669
+            cmake;3.22.1
 
       - name: Ensure local.properties exists
         run: |
@@ -59,28 +69,41 @@ jobs:
             chmod +x "$PROJECT_DIR/gradlew"
           fi
 
-      - name: Replace deprecated jcenter() in Gradle files
+      - name: Regenerate wrapper if invalid (Gradle 6.5)
         run: |
           PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
-          find "$PROJECT_DIR" \( -name "*.gradle" -o -name "*.gradle.kts" \) -type f \
-            -exec sed -i 's/jcenter()/mavenCentral()/g' {} +
-          echo "Ocorrências restantes de jcenter():"
-          grep -rn "jcenter()" "$PROJECT_DIR" --include="*.gradle" --include="*.gradle.kts" || echo "nenhuma"
+          WRAPPER_JAR="$PROJECT_DIR/gradle/wrapper/gradle-wrapper.jar"
+          WRAPPER_PROPS="$PROJECT_DIR/gradle/wrapper/gradle-wrapper.properties"
+          INVALID=0
+          if [ ! -s "$WRAPPER_JAR" ] || [ ! -f "$PROJECT_DIR/gradlew" ]; then
+            INVALID=1
+          elif [ -f "$WRAPPER_PROPS" ] && ! grep -q "gradle-6.5" "$WRAPPER_PROPS"; then
+            echo "Wrapper aponta para versão diferente de 6.5, regenerando..."
+            INVALID=1
+          fi
+          if [ "$INVALID" = "1" ]; then
+            echo "Baixando Gradle 6.5 e regenerando o wrapper..."
+            cd "$PROJECT_DIR"
+            curl -sSLo /tmp/gradle-6.5-bin.zip https://services.gradle.org/distributions/gradle-6.5-bin.zip
+            unzip -q /tmp/gradle-6.5-bin.zip -d /tmp
+            /tmp/gradle-6.5/bin/gradle wrapper --gradle-version 6.5 --distribution-type bin
+            chmod +x ./gradlew
+            echo "Wrapper regenerado. Conteúdo de gradle-wrapper.properties:"
+            cat gradle/wrapper/gradle-wrapper.properties
+          else
+            echo "Wrapper já é válido (Gradle 6.5)."
+          fi
 
-      - name: Set up Gradle
+      - name: Set up Gradle (usa wrapper do projeto)
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.7"
+        # NÃO especifique gradle-version. Usa o wrapper do projeto.
 
       - name: Build APK
         working-directory: ${{ steps.root.outputs.project_dir }}
         run: |
           TASK="${{ github.event.inputs.build_type || 'assembleDebug' }}"
-          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -s "gradle/wrapper/gradle-wrapper.jar" ]; then
-            ./gradlew "$TASK" --stacktrace --no-daemon
-          else
-            gradle "$TASK" --stacktrace --no-daemon
-          fi
+          echo "Executando tarefa: $TASK"
+          ./gradlew "$TASK" --stacktrace --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

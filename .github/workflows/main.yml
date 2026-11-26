@@ -62,6 +62,11 @@ jobs:
             chmod +x "$PROJECT_DIR/gradlew"
           fi
 
+      - name: Replace deprecated jcenter() in Gradle files
+        run: |
+          PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
+          find "$PROJECT_DIR" -name "*.gradle" -exec sed -i 's/\bjcenter()\b/mavenCentral()/g' {} +
+
       - name: Build APK
         run: |
           PROJECT_DIR="${{ steps.root.outputs.project_dir }}"

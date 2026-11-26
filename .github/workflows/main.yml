@@ -1,1 +1,81 @@
+name: Build APK
 
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Tipo de build (assembleDebug ou assembleRelease)"
+        required: true
+        default: "assembleDebug"
+        type: choice
+        options:
+          - assembleDebug
+          - assembleRelease
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Locate Android project root
+        id: root
+        run: |
+          if [ -f "gradlew" ]; then
+            echo "project_dir=." >> "$GITHUB_OUTPUT"
+          elif [ -f "FreeFire-ESP-And-Aimbot-3-po/gradlew" ]; then
+            echo "project_dir=FreeFire-ESP-And-Aimbot-3-po" >> "$GITHUB_OUTPUT"
+          else
+            echo "Erro: gradlew não encontrado."
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Ensure local.properties exists
+        run: |
+          PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
+          if [ ! -f "$PROJECT_DIR/local.properties" ]; then
+            echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
+          fi
+
+      - name: Cache Gradle and NDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties', '**/*.gradle*', '**/jni/**') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Grant execute permission to gradlew
+        run: |
+          PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
+          chmod +x "$PROJECT_DIR/gradlew"
+
+      - name: Build APK
+        run: |
+          PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
+          TASK="${{ github.event.inputs.build_type || 'assembleDebug' }}"
+          cd "$PROJECT_DIR"
+          ./gradlew "$TASK" --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-apk
+          path: |
+            ${{ steps.root.outputs.project_dir }}/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

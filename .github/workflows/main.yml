@@ -52,27 +52,26 @@ jobs:
             echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
           fi
 
-      - name: Cache Gradle and NDK
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties', '**/*.gradle*', '**/jni/**') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Grant execute permission to gradlew
         run: |
           PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
-          chmod +x "$PROJECT_DIR/gradlew"
+          if [ -f "$PROJECT_DIR/gradlew" ]; then
+            chmod +x "$PROJECT_DIR/gradlew"
+          fi
 
       - name: Build APK
         run: |
           PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
           TASK="${{ github.event.inputs.build_type || 'assembleDebug' }}"
           cd "$PROJECT_DIR"
-          ./gradlew "$TASK" --stacktrace
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            ./gradlew "$TASK" --stacktrace
+          else
+            gradle "$TASK" --stacktrace
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

@@ -53,10 +53,12 @@ jobs:
           fi
 
       - name: Grant execute permission to gradlew
-        run: chmod +x "${{ steps.root.outputs.project_dir }}/gradlew"
+        run: |
+          PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
+          if [ -f "$PROJECT_DIR/gradlew" ]; then
+            chmod +x "$PROJECT_DIR/gradlew"
+          fi
 
-      # CORREÇÃO: o sed antigo usava \b depois de "()", que nunca casa no fim da
-      # linha, então o jcenter() nunca era trocado (e o Gradle novo não tem mais jcenter()).
       - name: Replace deprecated jcenter() in Gradle files
         run: |
           PROJECT_DIR="${{ steps.root.outputs.project_dir }}"
@@ -72,7 +74,11 @@ jobs:
         working-directory: ${{ steps.root.outputs.project_dir }}
         run: |
           TASK="${{ github.event.inputs.build_type || 'assembleDebug' }}"
-          ./gradlew "$TASK" --stacktrace --no-daemon
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            ./gradlew "$TASK" --stacktrace --no-daemon
+          else
+            gradle "$TASK" --stacktrace --no-daemon
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
